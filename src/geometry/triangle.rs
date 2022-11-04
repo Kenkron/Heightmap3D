@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use glm::Vector3;
 
 pub type Triangle = [Vector3::<f32>; 3];
