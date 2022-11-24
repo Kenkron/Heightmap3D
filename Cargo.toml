@@ -1,0 +1,13 @@
+[package]
+name = "heightmap_to_stl"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+eframe = "0.19.0"
+egui = "0.19.0"
+glm = "0.2.3"
+image = "0.24.4"
+rfd = "0.10.0"
