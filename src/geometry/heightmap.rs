@@ -1,17 +1,18 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use glm::{Vector2, Vector3};
+extern crate nalgebra_glm as glm;
+use glm::{Vec2, Vec3, TVec2};
 use crate::geometry::triangle::*;
 use crate::geometry::ReadError;
 
 pub struct Heightmap {
-    pub size: Vector2::<i32>,
-    pub scale: Vector2::<f32>,
+    pub size: TVec2::<i32>,
+    pub scale: Vec2,
     pub samples: Vec::<f32>,
     pub invert_y: bool
 }
 
-fn add_triangles(triangles: &mut Vec::<Triangle>, corners: [Vector3::<f32>; 4]) {
+fn add_triangles(triangles: &mut Vec::<Triangle>, corners: [Vec3; 4]) {
     triangles.push([corners[0], corners[1], corners[2]]);
     triangles.push([corners[0], corners[2], corners[3]]);
 }
@@ -35,35 +36,35 @@ impl Heightmap {
     -> Vec::<Triangle> {
         let mut result = Vec::<Triangle>::new();
         let scale = self.scale;
-        let x_scale = Vector2::<f32>{x: scale[0], y: 0.};
-        let y_scale = Vector2::<f32>{x: 0., y: scale[1]};
+        let x_scale = Vec2::new(scale[0], 0.);
+        let y_scale = Vec2::new(0., scale[1]);
         for i in 0..self.size[0] + 1 {
             for j in 0 ..self.size[1] + 1 {
                 let z = self.sample(i, j);
-                let corner = Vector2::<f32>{x: i as f32, y: j as f32} * self.scale;
+                let corner = Vec2::new(i as f32, j as f32).component_mul(&self.scale);
                 let corners = [
-                    (corner).extend(z),
-                    (corner + x_scale).extend(z),
-                    (corner + x_scale + y_scale).extend(z),
-                    (corner + y_scale).extend(z)
+                    corner.insert_row(2, z),
+                    (corner + x_scale).insert_row(2, z),
+                    (corner + x_scale + y_scale).insert_row(2, z),
+                    (corner + y_scale).insert_row(2, z)
                 ];
                 if i < self.size[0] && j < self.size[1] {
                     add_triangles(&mut result, corners);
                 }
                 let bottom_z = self.sample(i, j - 1);
                 let bottom_corners = [
-                    (corner).extend(bottom_z),
-                    (corner + x_scale).extend(bottom_z),
-                    (corner + x_scale).extend(z),
-                    (corner).extend(z)
+                    (corner).insert_row(2, bottom_z),
+                    (corner + x_scale).insert_row(2, bottom_z),
+                    (corner + x_scale).insert_row(2, z),
+                    (corner).insert_row(2, z)
                 ];
                 add_triangles(&mut result, bottom_corners);
                 let left_z = self.sample(i - 1, j);
                 let left_corners = [
-                    (corner + y_scale).extend(left_z),
-                    (corner).extend(left_z),
-                    (corner).extend(z),
-                    (corner + y_scale).extend(z)
+                    (corner + y_scale).insert_row(2, left_z),
+                    (corner).insert_row(2, left_z),
+                    (corner).insert_row(2, z),
+                    (corner + y_scale).insert_row(2, z)
                 ];
                 add_triangles(&mut result, left_corners);
             }
@@ -72,10 +73,10 @@ impl Heightmap {
         extents[0] *= self.size[0] as f32;
         extents[1] *= self.size[1] as f32;
         let floor_corners = [
-            Vector3::<f32>::new(0.,0.,0.),
-            Vector3::<f32>::new(0.,extents[1],0.),
-            Vector3::<f32>::new(extents[0],extents[1],0.),
-            Vector3::<f32>::new(extents[0],0.,0.),
+            Vec3::new(0.,0.,0.),
+            Vec3::new(0.,extents[1],0.),
+            Vec3::new(extents[0],extents[1],0.),
+            Vec3::new(extents[0],0.,0.),
         ];
         add_triangles(&mut result, floor_corners);
         return result;
@@ -85,8 +86,8 @@ impl Heightmap {
 pub fn read_heightmap(file: File)
 -> Result<Heightmap, ReadError> {
     let reader = BufReader::new(file);
-    let mut size = Vector2::<i32>{x: 0, y: 0};
-    let mut scale = Vector2::<f32>{x: 1., y: 1.};
+    let mut size = TVec2::<i32>::new(0, 0);
+    let mut scale = Vec2::new(1., 1.);
     let mut samples = Vec::<f32>::new();
     let mut line_num = 0;
     for line_result in reader.lines() {

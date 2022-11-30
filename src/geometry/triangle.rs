@@ -1,10 +1,11 @@
 use std::fs::File;
 use std::io::Write;
-use glm::Vector3;
+extern crate nalgebra_glm as glm;
+use glm::Vec3;
 
-pub type Triangle = [Vector3::<f32>; 3];
+pub type Triangle = [Vec3; 3];
 
-fn write_vec3(file: &mut File, vector: &Vector3::<f32>)
+fn write_vec3(file: &mut File, vector: &Vec3)
 -> Result<(), std::io::Error>{
     file.write_all(&vector[0].to_le_bytes())?;
     file.write_all(&vector[1].to_le_bytes())?;
@@ -22,7 +23,7 @@ pub fn write_stl_binary(
     for triangle in triangles {
         let edge1 = triangle[1] - triangle[0];
         let edge2 = triangle[2] - triangle[0];
-        let normal = glm::normalize(glm::cross(edge1, edge2));
+        let normal = glm::cross(&edge1, &edge2).normalize();
         write_vec3(&mut output, &normal)?;
         for vertex in triangle {
             write_vec3(&mut output, vertex)?;

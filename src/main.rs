@@ -29,7 +29,7 @@ impl AppState {
         Self {
             c3d: custom3d_glow::Custom3d::new(gl.to_owned()).unwrap(),
             renderable_mesh: None,
-            view_3d: mesh_view::MeshView::new(gl.to_owned(), Vec2::new(200., 200.)),
+            view_3d: mesh_view::MeshView::new(gl.to_owned(), Vec2::new(400., 400.)),
             gl: gl,
             heightmap_path: None,
             heightmap: None,
@@ -92,8 +92,6 @@ impl eframe::App for AppState {
                 ui.monospace(error);
                 return;
             }
-
-            self.c3d.custom_painting(ui);
             if let Some(heightmap) = &self.heightmap {
                 if ui.button("Export").clicked() {
                     

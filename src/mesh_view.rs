@@ -1,33 +1,35 @@
 use std::sync::Arc;
 use egui;
-use glm::*;
+extern crate nalgebra_glm as glm;
 use bytemuck;
 
-pub type Triangle = [Vector3<f32>; 3];
+pub type Triangle = [Vec3; 3];
 
-use eframe::{egui_glow, glow::Context};
+use eframe::egui_glow;
 use egui_glow::glow;
+use glm::{Vec3, Mat4};
 
-fn rotation_x(r: f32) -> Matrix4<f32>{
-    return mat4(
+fn rotation_x(r: f32) -> Mat4{
+    return Mat4::new(
         1., 0., 0., 0.,
-        0., cos(r), -sin(r), 0.,
-        0., sin(r), cos(r), 0.,
+        0., r.cos(), -r.sin(), 0.,
+        0., r.sin(), r.cos(), 0.,
         0., 0., 0., 1.)
 }
-fn rotation_y(r: f32) -> Matrix4<f32>{
-    return mat4(
-        cos(r), 0., sin(r), 0.,
+fn rotation_y(r: f32) -> Mat4{
+    return Mat4::new(
+        r.cos(), 0., r.sin(), 0.,
         0., 1., 0., 0.,
-        -sin(r), 0., cos(r), 0.,
+        -r.sin(), 0., r.cos(), 0.,
         0., 0., 0., 1.)
 }
 
 pub struct MeshView {
     pub view_size: egui::Vec2,
     pub scale: f32,
-    pub translation: Vector3::<f32>,
-    pub rotation: Matrix4<f32>,
+    pub translation: Vec3,
+    pub rotation: Mat4,
+    pub right_handed: bool,
     shader_program: glow::Program,
     gl: Arc<glow::Context>
 }
@@ -38,19 +40,24 @@ impl MeshView {
 
         let phong_fragment = r#"
         #version 330 core
-        uniform vec3 light_direction = vec3(-1,-1,1);
-        uniform vec3 light_color = vec3(1,1,1);
-        uniform float diffuse = 0.5;
-        uniform float ambient = 0.1;
-        uniform float specular = 0.1;
+        precision mediump float;
+        in vec3 v_normal;
+        out vec4 out_color;
+        vec3 light_direction = vec3(-1,-1,1);
+        vec3 light_color = vec3(1,1,1);
+        float diffuse = 0.5;
+        float ambient = 0.1;
+        float specular = 0.1;
         
         void main()
         {
-          float d = dot(fNormal, normalize(light_direction));
-          vec3 reflection = light_direction - fNormal * d * 2.;
+          vec3 normal_3 = vec3(v_normal.x, v_normal.y, v_normal.z);
+          float d = dot(normal_3, normalize(light_direction));
+          vec3 reflection = light_direction - normal_3 * d * 2.;
           float s = max(0., dot(vec3(0.,0.,-1.), reflection));
           float intensity = ambient + diffuse * d + specular * s;
-          gl_FragColor = vec4(light_color * intensity, 1.0);
+          out_color = vec4(light_color * intensity, 1.0);
+          //out_color = vec4(normal_3, 1.0);
         }"#;
 
         unsafe {
@@ -60,29 +67,23 @@ impl MeshView {
                 r#"
                     #version 330 core
                     layout (location = 0) in vec3 a_pos;
+                    layout (location = 1) in vec3 a_normal;
                     uniform mat4 u_transformation;
+                    uniform mat3 u_normal_rotation;
                     const vec4 colors[3] = vec4[3](
                         vec4(1.0, 0.0, 0.0, 1.0),
                         vec4(0.0, 1.0, 0.0, 1.0),
                         vec4(0.0, 0.0, 1.0, 1.0)
                     );
-                    out vec4 v_color;
-                    uniform float u_angle;
+                    //out vec4 v_color;
+                    out vec3 v_normal;
                     void main() {
-                        v_color = colors[gl_VertexID % 3];
-                        gl_Position = u_transformation * vec4(a_pos.x, a_pos.y, a_pos.z * 0.01 , 1.0);
-                        gl_Position.x *= cos(u_angle);
+                        v_normal = u_normal_rotation * a_normal;
+                        gl_Position = u_transformation * vec4(a_pos.x, a_pos.y, a_pos.z , 1.0);
+                        gl_Position.z *= 0.001;
                     }
                 "#,
-                r#"
-                #version 330 core
-                precision mediump float;
-                in vec4 v_color;
-                out vec4 out_color;
-                void main() {
-                    out_color = v_color;
-                }
-                "#,
+                phong_fragment,
             );
 
             let shader_sources = [
@@ -103,7 +104,7 @@ impl MeshView {
                     gl.compile_shader(shader);
                     if !gl.get_shader_compile_status(shader) {
                         panic!(
-                            "Failed to compile custom_3d_glow: {}",
+                            "Failed to compile MeshView: {}",
                             gl.get_shader_info_log(shader)
                         );
                     }
@@ -124,29 +125,26 @@ impl MeshView {
             return Self { 
                 view_size: size,
                 scale: 1.,
-                translation: Vector3 { x: 0., y: 0., z: 0. },
-                rotation: mat4(
-                    1., 0., 0., 0.,
-                    0., 1., 0., 0.,
-                    0., 0., 1., 0.,
-                    0., 0., 0., 1.),
+                translation: Vec3::new(0., 0., 0.),
+                rotation: Mat4::identity(),
+                right_handed: true,
                 shader_program,
                 gl
             };
         }
     }
-    fn combine_transformations(&self) -> Matrix4<f32> {
-        let scaling = mat4(
+    fn combine_transformations(&self) -> Mat4 {
+        let scaling = Mat4::new(
             self.scale, 0., 0., 0.,
             0., self.scale, 0., 0.,
             0., 0., self.scale, 0.,
             0., 0., 0., self.scale);
-        let translating = mat4(
+        let translating = Mat4::new(
             1., 0., 0., self.translation[0],
             0., 1., 0., self.translation[1],
             0., 0., 1., self.translation[2],
             0., 0., 0., 1.);
-        return translating * scaling * self.rotation;
+        return self.rotation * scaling * translating;
     }
     pub fn show_mesh(&mut self, ui: &mut egui::Ui, mesh: Arc<RenderableMesh>) {
         use glow::HasContext as _;
@@ -162,30 +160,33 @@ impl MeshView {
             self.scale += response.drag_delta().x * 0.01;
         }
 
-        let angle = self.scale;
         let gl = self.gl.to_owned();
         let shader_program = self.shader_program;
-        let transformation_matrix = self.rotation;
-        let mut transformation = [0.0 as f32; 16];
-        for i in 0..transformation.len() {
-            transformation[i] = transformation_matrix.as_array()[i/4][i%4];
-        }
-        let cb = egui_glow::CallbackFn::new(move |_info, painter| {
+        let transformation_matrix = self.combine_transformations();
+        let transformation = transformation_matrix.as_slice().to_owned();
+        let normal_rotation = match transformation_matrix.try_inverse() {
+            Some(result) => {result.transpose().as_slice().to_owned()},
+            None => {Mat4::identity().as_slice().to_owned()}
+        };
+        let cb = egui_glow::CallbackFn::new(move |_info, _painter| {
             unsafe {
                 gl.enable(glow::DEPTH_TEST);
                 gl.clear(glow::DEPTH_BUFFER_BIT);
+                gl.disable(glow::CLIP_DEPTH_MODE);
+                gl.depth_range_f32(-100., 100.);
                 gl.use_program(Some(shader_program));
-                gl.uniform_1_f32(
-                    gl.get_uniform_location(shader_program, "u_angle").as_ref(),
-                    1.0,
-                );
                 gl.uniform_matrix_4_f32_slice(
                     gl.get_uniform_location(shader_program, "u_transformation").as_ref(),
                     false,
                     &transformation,
                 );
+                gl.uniform_matrix_3_f32_slice(
+                    gl.get_uniform_location(shader_program, "u_normal_rotation").as_ref(),
+                    false,
+                    &normal_rotation,
+                );
             }
-            mesh.draw(angle);
+            mesh.draw();
         });
 
         if ui.is_rect_visible(rect) {
@@ -220,24 +221,22 @@ impl RenderableMesh {
 
         let mut triangle_vertices = Vec::<f32>::new();
         for &t in &triangles {
-            for &v in &t {
-                for f in v.as_array() {
-                    triangle_vertices.push(f.to_owned());
+            // Only add triangles with non-zero area
+            let cross_product = glm::cross(&(t[1] - t[0]), &(t[2] - t[0]));
+            if glm::dot(&cross_product, &cross_product) > 0.0 {
+                let normal = cross_product.normalize();
+                for &v in &t {
+                    for f in &v {
+                        triangle_vertices.push(f.to_owned());
+                    }
+                    for f in &normal {
+                        triangle_vertices.push(f.to_owned());
+                    }
                 }
             }
         }
-        
-        let vertices: [f32; 9] = [
-            -0.5, -0.5, 0.0, // left
-            0.5, -0.5, 0.0, // right
-            0.0,  0.5, 0.0  // top
-        ];
-        let u8_buffer: &[u8] = bytemuck::cast_slice(&triangle_vertices[..]);
-        print!("{} {} {}\n", &triangle_vertices[0], &triangle_vertices[1], &triangle_vertices[2]);
 
-        // let triangle_vertex_bytes: &[u8] = core::slice::from_raw_parts(
-        //     triangle_vertices.as_ptr() as *const u8,
-        //     triangle_vertices.len() * core::mem::size_of::<f32>());
+        let u8_buffer: &[u8] = bytemuck::cast_slice(&triangle_vertices[..]);
 
         unsafe {
             let vertex_buffer = gl.create_buffer().unwrap();
@@ -249,7 +248,10 @@ impl RenderableMesh {
                 .expect("Cannot create vertex array");
             gl.bind_vertex_array(Some(vertex_array));
             gl.enable_vertex_attrib_array(0);
-            gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, 0, 0);
+            let bpv = 12; // Bytes Per Vector3
+            gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, bpv * 2, 0);
+            gl.enable_vertex_attrib_array(1);
+            gl.vertex_attrib_pointer_f32(1, 3, glow::FLOAT, false, bpv * 2, bpv);
 
             return Self {
                 triangles,
@@ -259,7 +261,7 @@ impl RenderableMesh {
             };
         }
     }
-    pub fn draw(&self, angle: f32) {
+    pub fn draw(&self) {
         use glow::HasContext as _;
         unsafe {
             self.gl.bind_vertex_array(Some(self.vertex_array));
