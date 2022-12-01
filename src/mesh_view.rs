@@ -9,21 +9,6 @@ use eframe::egui_glow;
 use egui_glow::glow;
 use glm::{Vec3, Mat4};
 
-fn rotation_x(r: f32) -> Mat4{
-    return Mat4::new(
-        1., 0., 0., 0.,
-        0., r.cos(), -r.sin(), 0.,
-        0., r.sin(), r.cos(), 0.,
-        0., 0., 0., 1.)
-}
-fn rotation_y(r: f32) -> Mat4{
-    return Mat4::new(
-        r.cos(), 0., r.sin(), 0.,
-        0., 1., 0., 0.,
-        -r.sin(), 0., r.cos(), 0.,
-        0., 0., 0., 1.)
-}
-
 pub struct MeshView {
     pub view_size: egui::Vec2,
     pub scale: f32,
@@ -38,51 +23,55 @@ impl MeshView {
     pub fn new(gl: Arc<glow::Context>, size: egui::Vec2) -> Self {
         use glow::HasContext as _;
 
-        let phong_fragment = r#"
+        let transformable_vertex = 
+        r#"
+        #version 330 core
+        layout (location = 0) in vec3 a_pos;
+        layout (location = 1) in vec3 a_normal;
+        uniform mat4 u_transformation;
+        uniform mat3 u_normal_rotation;
+        const vec4 colors[3] = vec4[3](
+            vec4(1.0, 0.0, 0.0, 1.0),
+            vec4(0.0, 1.0, 0.0, 1.0),
+            vec4(0.0, 0.0, 1.0, 1.0)
+        );
+        //out vec4 v_color;
+        out vec3 v_normal;
+        void main() {
+            v_normal = u_normal_rotation * a_normal;
+            gl_Position = u_transformation * vec4(a_pos.x, a_pos.y, a_pos.z , 1.0);
+            gl_Position.z *= 0.001;
+        }
+        "#;
+
+        let phong_fragment =
+        r#"
         #version 330 core
         precision mediump float;
         in vec3 v_normal;
         out vec4 out_color;
-        vec3 light_direction = vec3(-1,-1,1);
+        vec3 light_direction = vec3(-1,-1,-1);
         vec3 light_color = vec3(1,1,1);
         float diffuse = 0.5;
-        float ambient = 0.1;
+        float ambient = 0.2;
         float specular = 0.1;
         
         void main()
         {
-          vec3 normal_3 = vec3(v_normal.x, v_normal.y, v_normal.z);
+          vec3 normal_3 = normalize(vec3(v_normal.x, v_normal.y, v_normal.z));
           float d = dot(normal_3, normalize(light_direction));
           vec3 reflection = light_direction - normal_3 * d * 2.;
           float s = max(0., dot(vec3(0.,0.,-1.), reflection));
-          float intensity = ambient + diffuse * d + specular * s;
+          float intensity = ambient + diffuse * max(0, d) + specular * s;
           out_color = vec4(light_color * intensity, 1.0);
-          //out_color = vec4(normal_3, 1.0);
-        }"#;
+        }
+        "#;
 
         unsafe {
             let shader_program = gl.create_program().expect("Cannot create program");
 
             let (vertex_shader_source, fragment_shader_source) = (
-                r#"
-                    #version 330 core
-                    layout (location = 0) in vec3 a_pos;
-                    layout (location = 1) in vec3 a_normal;
-                    uniform mat4 u_transformation;
-                    uniform mat3 u_normal_rotation;
-                    const vec4 colors[3] = vec4[3](
-                        vec4(1.0, 0.0, 0.0, 1.0),
-                        vec4(0.0, 1.0, 0.0, 1.0),
-                        vec4(0.0, 0.0, 1.0, 1.0)
-                    );
-                    //out vec4 v_color;
-                    out vec3 v_normal;
-                    void main() {
-                        v_normal = u_normal_rotation * a_normal;
-                        gl_Position = u_transformation * vec4(a_pos.x, a_pos.y, a_pos.z , 1.0);
-                        gl_Position.z *= 0.001;
-                    }
-                "#,
+                transformable_vertex,
                 phong_fragment,
             );
 
@@ -134,11 +123,13 @@ impl MeshView {
         }
     }
     fn combine_transformations(&self) -> Mat4 {
+        // The negative z coordinate makes the coordinates right handed in the shader
+        // There's probably a better way to do this
         let scaling = Mat4::new(
             self.scale, 0., 0., 0.,
             0., self.scale, 0., 0.,
-            0., 0., self.scale, 0.,
-            0., 0., 0., self.scale);
+            0., 0., -self.scale, 0.,
+            0., 0., 0., 1.0);
         let translating = Mat4::new(
             1., 0., 0., self.translation[0],
             0., 1., 0., self.translation[1],
@@ -154,9 +145,9 @@ impl MeshView {
 
         if response.dragged() {
             self.rotation =
-                rotation_y(response.drag_delta().x * 0.0625) *
-                rotation_x(response.drag_delta().y * 0.0625) *
-                self.rotation;
+                glm::rotate_y(&self.rotation, -response.drag_delta().x * 0.01);
+            self.rotation =
+                glm::rotate_x(&self.rotation, -response.drag_delta().y * 0.01);
             self.scale += response.drag_delta().x * 0.01;
         }
 

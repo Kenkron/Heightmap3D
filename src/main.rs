@@ -5,19 +5,18 @@ use std::fs::File;
 use std::sync::Arc;
 use eframe::egui;
 use egui::Vec2;
+use nalgebra_glm::Vec3;
 mod geometry;
 use crate::geometry::triangle::*;
 use crate::geometry::heightmap::*;
 use eframe::egui_glow;
 use egui_glow::glow;
-mod custom3d_glow;
 mod mesh_view;
-use mesh_view::*;
 
 struct AppState {
-    c3d: custom3d_glow::Custom3d,
     renderable_mesh: Option<Arc<mesh_view::RenderableMesh>>,
     view_3d: mesh_view::MeshView,
+    scale: f32,
     gl: Arc<glow::Context>,
     heightmap_path: Option<String>,
     heightmap: Option<Heightmap>,
@@ -27,9 +26,9 @@ struct AppState {
 impl AppState {
     fn new(gl: Arc<glow::Context>) -> Self {
         Self {
-            c3d: custom3d_glow::Custom3d::new(gl.to_owned()).unwrap(),
             renderable_mesh: None,
             view_3d: mesh_view::MeshView::new(gl.to_owned(), Vec2::new(400., 400.)),
+            scale: 1.0,
             gl: gl,
             heightmap_path: None,
             heightmap: None,
@@ -38,26 +37,8 @@ impl AppState {
     }
 }
 
-fn f32_max(nums: &Vec::<f32>, default: f32) -> f32 {
-    if nums.len() == 0 {
-        return default;
-    }
-    return *nums[1..].iter().reduce(|acc, x| {
-        if acc < x {x} else {acc}
-    }).unwrap();
-}
-
-fn f32_min(nums: &Vec::<f32>, default: f32) -> f32 {
-    if nums.len() == 0 {
-        return default;
-    }
-    return *nums[1..].iter().reduce(|acc, x| {
-        if x < acc {x} else {acc}
-    }).unwrap();
-}
-
 impl eframe::App for AppState {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Heightmap To STL");
             
@@ -113,9 +94,16 @@ impl eframe::App for AppState {
                         Some(Arc::new(
                             mesh_view::RenderableMesh::new(
                                 mesh_gl, heightmap_mesh)));
+                    self.view_3d.translation = Vec3::new(
+                        -heightmap.size.x as f32 * heightmap.scale.x * 0.5,
+                        -heightmap.size.y as f32 * heightmap.scale.y * 0.5,
+                        0.0
+                    );
                 }
                 if let Some(mesh) = &self.renderable_mesh {
+                    self.view_3d.scale = self.scale;
                     self.view_3d.show_mesh(ui, mesh.to_owned());
+                    ui.add(egui::Slider::new(&mut self.scale, 0.0..=2.0).text("scale: "));
                 }
             }
         });
@@ -130,7 +118,8 @@ fn main() {
         let triangles = heightmap.get_triangles();
         write_stl_binary(args[2].to_owned(), &triangles).expect("Error saving STL");
     } else {
-        let options = eframe::NativeOptions::default();
+        let mut options = eframe::NativeOptions::default();
+        options.initial_window_size = Some(egui::vec2(600., 600.));
         eframe::run_native(
             "Heightmap To STL",
             options,
