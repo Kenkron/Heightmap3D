@@ -102,8 +102,13 @@ impl eframe::App for AppState {
                 }
                 if let Some(mesh) = &self.renderable_mesh {
                     self.view_3d.scale = self.scale;
-                    self.view_3d.show_mesh(ui, mesh.to_owned());
-                    ui.add(egui::Slider::new(&mut self.scale, 0.0..=2.0).text("scale: "));
+                    let mut style = (*ctx.style()).clone();
+                    style.spacing.slider_width = 400.;
+                    ctx.set_style(style);
+                    ui.vertical_centered(|ui| {
+                        self.view_3d.show_mesh(ui, mesh.to_owned());
+                        ui.add(egui::Slider::new(&mut self.scale, 0.0..=2.0));
+                    });
                 }
             }
         });
@@ -119,7 +124,7 @@ fn main() {
         write_stl_binary(args[2].to_owned(), &triangles).expect("Error saving STL");
     } else {
         let mut options = eframe::NativeOptions::default();
-        options.initial_window_size = Some(egui::vec2(600., 600.));
+        options.initial_window_size = Some(egui::vec2(500., 600.));
         eframe::run_native(
             "Heightmap To STL",
             options,
