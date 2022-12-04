@@ -20,7 +20,7 @@ pub struct MeshView {
 }
 
 impl MeshView {
-    pub fn new(gl: Arc<glow::Context>, size: egui::Vec2) -> Self {
+    pub fn new(gl: Arc<glow::Context>, size: egui::Vec2) -> Result<Self, String> {
         use glow::HasContext as _;
 
         let transformable_vertex = 
@@ -35,7 +35,6 @@ impl MeshView {
             vec4(0.0, 1.0, 0.0, 1.0),
             vec4(0.0, 0.0, 1.0, 1.0)
         );
-        //out vec4 v_color;
         out vec3 v_normal;
         void main() {
             v_normal = u_normal_rotation * a_normal;
@@ -68,7 +67,7 @@ impl MeshView {
         "#;
 
         unsafe {
-            let shader_program = gl.create_program().expect("Cannot create program");
+            let shader_program = gl.create_program()?;
 
             let (vertex_shader_source, fragment_shader_source) = (
                 transformable_vertex,
@@ -80,38 +79,30 @@ impl MeshView {
                 (glow::FRAGMENT_SHADER, fragment_shader_source),
             ];
 
-            let shaders: Vec<_> = shader_sources
-                .iter()
-                .map(|(shader_type, shader_source)| {
-                    let shader = gl
-                        .create_shader(*shader_type)
-                        .expect("Cannot create shader");
-                    gl.shader_source(
-                        shader,
-                        shader_source
-                    );
-                    gl.compile_shader(shader);
-                    if !gl.get_shader_compile_status(shader) {
-                        panic!(
-                            "Failed to compile MeshView: {}",
-                            gl.get_shader_info_log(shader)
-                        );
-                    }
-                    gl.attach_shader(shader_program, shader);
-                    shader
-                })
-                .collect();
+            let mut shaders: Vec<glow::NativeShader> = Vec::new(); 
+            for (shader_type, shader_source) in &shader_sources {
+                let shader = gl.create_shader(*shader_type)?;
+                gl.shader_source(shader, shader_source);
+                gl.compile_shader(shader);
+                if !gl.get_shader_compile_status(shader) {
+                    return Err(format!(
+                        "Failed to compile MeshView: {}",
+                        gl.get_shader_info_log(shader)));
+                }
+                gl.attach_shader(shader_program, shader);
+                shaders.push(shader);
+            }
 
             gl.link_program(shader_program);
             if !gl.get_program_link_status(shader_program) {
-                panic!("{}", gl.get_program_info_log(shader_program));
+                return Err(format!("{}", gl.get_program_info_log(shader_program)));
             }
 
             for shader in shaders {
                 gl.detach_shader(shader_program, shader);
                 gl.delete_shader(shader);
             }
-            return Self { 
+            return Ok(Self { 
                 view_size: size,
                 scale: 1.,
                 translation: Vec3::new(0., 0., 0.),
@@ -119,7 +110,7 @@ impl MeshView {
                 right_handed: true,
                 shader_program,
                 gl
-            };
+            });
         }
     }
     fn combine_transformations(&self) -> Mat4 {
@@ -200,14 +191,15 @@ impl Drop for MeshView {
 }
 
 pub struct RenderableMesh {
-    triangles: Vec::<Triangle>,
+    // Immutable reference to original mesh
+    triangles: Arc<Vec<Triangle>>,
     vertex_buffer: glow::Buffer,
     vertex_array: glow::VertexArray,
     gl: Arc<glow::Context>
 }
 
 impl RenderableMesh {
-    pub fn new(gl: Arc<glow::Context>, triangles: Vec::<Triangle>) -> Self {
+    pub fn new(gl: Arc<glow::Context>, triangles: Vec::<Triangle>) -> Result<Self, String> {
         use glow::HasContext as _;
 
         let mut triangle_vertices = Vec::<f32>::new();
@@ -230,13 +222,18 @@ impl RenderableMesh {
         let u8_buffer: &[u8] = bytemuck::cast_slice(&triangle_vertices[..]);
 
         unsafe {
-            let vertex_buffer = gl.create_buffer().unwrap();
+            let vertex_buffer = gl.create_buffer()?;
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(vertex_buffer));
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, u8_buffer, glow::STATIC_DRAW);
 
-            let vertex_array = gl
-                .create_vertex_array()
-                .expect("Cannot create vertex array");
+            let vertex_array = match gl.create_vertex_array() {
+                Ok(val) => { val },
+                Err(val) => {
+                    // Delete the vertex buffer before erroring
+                    gl.as_ref().delete_buffer(vertex_buffer);
+                    return Err(val);
+                }
+            };
             gl.bind_vertex_array(Some(vertex_array));
             gl.enable_vertex_attrib_array(0);
             let bpv = 12; // Bytes Per Vector3
@@ -244,12 +241,12 @@ impl RenderableMesh {
             gl.enable_vertex_attrib_array(1);
             gl.vertex_attrib_pointer_f32(1, 3, glow::FLOAT, false, bpv * 2, bpv);
 
-            return Self {
-                triangles,
+            return Ok(Self {
+                triangles: Arc::new(triangles),
                 vertex_buffer,
                 vertex_array,
                 gl
-            };
+            });
         }
     }
     pub fn draw(&self) {
@@ -258,6 +255,9 @@ impl RenderableMesh {
             self.gl.bind_vertex_array(Some(self.vertex_array));
             self.gl.draw_arrays(glow::TRIANGLES, 0, self.triangles.len() as i32 * 3);
         }
+    }
+    pub fn get_triangles(&self) -> Arc<Vec<Triangle>>{
+        return self.triangles.to_owned();
     }
 }
 

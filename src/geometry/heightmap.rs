@@ -12,7 +12,9 @@ pub struct Heightmap {
     pub invert_y: bool
 }
 
-fn add_triangles(triangles: &mut Vec::<Triangle>, corners: [Vec3; 4]) {
+
+// Utility function to add a square face to a Vec of Triangles.
+fn add_rect(triangles: &mut Vec::<Triangle>, corners: [Vec3; 4]) {
     triangles.push([corners[0], corners[1], corners[2]]);
     triangles.push([corners[0], corners[2], corners[3]]);
 }
@@ -49,7 +51,7 @@ impl Heightmap {
                     (corner + y_scale).insert_row(2, z)
                 ];
                 if i < self.size[0] && j < self.size[1] {
-                    add_triangles(&mut result, corners);
+                    add_rect(&mut result, corners);
                 }
                 let bottom_z = self.sample(i, j - 1);
                 let bottom_corners = [
@@ -58,7 +60,7 @@ impl Heightmap {
                     (corner + x_scale).insert_row(2, z),
                     (corner).insert_row(2, z)
                 ];
-                add_triangles(&mut result, bottom_corners);
+                add_rect(&mut result, bottom_corners);
                 let left_z = self.sample(i - 1, j);
                 let left_corners = [
                     (corner + y_scale).insert_row(2, left_z),
@@ -66,7 +68,7 @@ impl Heightmap {
                     (corner).insert_row(2, z),
                     (corner + y_scale).insert_row(2, z)
                 ];
-                add_triangles(&mut result, left_corners);
+                add_rect(&mut result, left_corners);
             }
         }
         let mut extents = self.scale;
@@ -78,7 +80,7 @@ impl Heightmap {
             Vec3::new(extents[0],extents[1],0.),
             Vec3::new(extents[0],0.,0.),
         ];
-        add_triangles(&mut result, floor_corners);
+        add_rect(&mut result, floor_corners);
         return result;
     }
 }

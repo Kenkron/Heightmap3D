@@ -16,7 +16,6 @@ mod mesh_view;
 struct AppState {
     renderable_mesh: Option<Arc<mesh_view::RenderableMesh>>,
     view_3d: mesh_view::MeshView,
-    scale: f32,
     gl: Arc<glow::Context>,
     heightmap_path: Option<String>,
     heightmap: Option<Heightmap>,
@@ -27,8 +26,7 @@ impl AppState {
     fn new(gl: Arc<glow::Context>) -> Self {
         Self {
             renderable_mesh: None,
-            view_3d: mesh_view::MeshView::new(gl.to_owned(), Vec2::new(400., 400.)),
-            scale: 1.0,
+            view_3d: mesh_view::MeshView::new(gl.to_owned(), Vec2::new(400., 400.)).unwrap(),
             gl: gl,
             heightmap_path: None,
             heightmap: None,
@@ -93,7 +91,7 @@ impl eframe::App for AppState {
                     self.renderable_mesh = 
                         Some(Arc::new(
                             mesh_view::RenderableMesh::new(
-                                mesh_gl, heightmap_mesh)));
+                                mesh_gl, heightmap_mesh).unwrap()));
                     self.view_3d.translation = Vec3::new(
                         -heightmap.size.x as f32 * heightmap.scale.x * 0.5,
                         -heightmap.size.y as f32 * heightmap.scale.y * 0.5,
@@ -101,13 +99,12 @@ impl eframe::App for AppState {
                     );
                 }
                 if let Some(mesh) = &self.renderable_mesh {
-                    self.view_3d.scale = self.scale;
                     let mut style = (*ctx.style()).clone();
                     style.spacing.slider_width = 400.;
                     ctx.set_style(style);
                     ui.vertical_centered(|ui| {
                         self.view_3d.show_mesh(ui, mesh.to_owned());
-                        ui.add(egui::Slider::new(&mut self.scale, 0.0..=2.0));
+                        ui.add(egui::Slider::new(&mut self.view_3d.scale, 0.0..=2.0));
                     });
                 }
             }
