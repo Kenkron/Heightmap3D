@@ -35,9 +35,9 @@ in vec3 v_normal;
 out vec4 out_color;
 vec3 light_direction = vec3(-1,-1,-1);
 vec3 light_color = vec3(1,1,1);
-float diffuse = 0.5;
+float diffuse = 0.4;
 float ambient = 0.2;
-float specular = 0.1;
+float specular = 0.4;
 
 void main()
 {
@@ -110,12 +110,23 @@ impl Widget for MeshView {
 
         {
             let mut mesh = self.mesh.lock().unwrap();
-            if response.dragged() {
-                mesh.rotation =
-                    glm::rotate_y(&mesh.rotation, -response.drag_delta().x * 0.01);
-                mesh.rotation =
-                    glm::rotate_x(&mesh.rotation, -response.drag_delta().y * 0.01);
-                mesh.scale += response.drag_delta().x * 0.01;
+
+            if response.dragged_by(egui::PointerButton::Primary) {
+                mesh.rotate_y(-response.drag_delta().x * 0.01);
+                mesh.rotate_x(-response.drag_delta().y * 0.01);
+            }
+            if response.dragged_by(egui::PointerButton::Secondary) {
+                let matrix = mesh.combine_transformations();
+                if let Some(inverse_matrix) = matrix.try_inverse() {
+                    let delta4 = inverse_matrix * glm::Vec4::new(
+                        2. * response.drag_delta().x / self.view_size.x,
+                        -2. * response.drag_delta().y / self.view_size.y,
+                        0., 0.);
+                    mesh.translation += Vec3::new(delta4.x, delta4.y, delta4.z);
+                }
+            }
+            if response.dragged_by(egui::PointerButton::Middle) {
+                mesh.scale *= std::f32::consts::E.powf(-response.drag_delta().y * 0.01);
             }
         }
 
@@ -148,7 +159,17 @@ pub struct RenderableMesh {
     gl: Arc<glow::Context>
 }
 
+/// A triangle mesh that can be rendered.
+///
+/// This structure contains all the data required to render a triangle mesh
+/// to a glow::Context. It uses a simple phong shader with directional lighting,
+/// and provides some basic fields for transformations.
 impl RenderableMesh {
+
+    /// Creates a RenderableMesh from a list of Triangles
+    ///
+    /// This function creates buffers and shaders for the gl context,
+    /// which are cleaned up when the RenderableMesh is dropped.
     pub fn new(gl: Arc<glow::Context>, triangles: Vec::<Triangle>) -> Result<Self, String> {
         use glow::HasContext as _;
 
@@ -204,7 +225,10 @@ impl RenderableMesh {
             });
         }
     }
-    fn combine_transformations(&self) -> Mat4 {
+
+    /// Combines the transformations (translation, scale, rotatioin)
+    /// into a single transformation matrix.
+    pub fn combine_transformations(&self) -> Mat4 {
         // The negative z coordinate makes the coordinates right handed in the shader
         // There's probably a better way to do this
         let scaling = Mat4::new(
@@ -219,6 +243,7 @@ impl RenderableMesh {
             0., 0., 0., 1.);
         return self.rotation * scaling * translating;
     }
+
     /// Renders the mesh to its glow::Context using its combined transformations
     /// As side effects, this enables the depth test, clears and uses the depth buffer,
     /// and sets the shader program to that of the Renderable Mesh
@@ -248,6 +273,7 @@ impl RenderableMesh {
             self.gl.draw_arrays(glow::TRIANGLES, 0, self.triangle_count as i32 * 3);
         }
     }
+
     /// Reference to the glow::Context used to create this mesh's buffers and shaders
     pub fn get_gl(&self) -> Arc<glow::Context> {
         return self.gl.to_owned();
@@ -259,6 +285,18 @@ impl RenderableMesh {
     /// Sets the rotation matrix back to the identity matrix
     pub fn reset_rotation(&mut self) {
         self.rotation = Mat4::identity();
+    }
+    /// Rotate around the x axis (relative to the model's current rotation)
+    pub fn rotate_x(&mut self, radians: f32) {
+        self.rotation = glm::rotate_x(&self.rotation, radians);
+    }
+    /// Rotate around the y axis (relative to the model's current rotation)
+    pub fn rotate_y(&mut self, radians: f32) {
+        self.rotation = glm::rotate_y(&self.rotation, radians);
+    }
+    /// Rotate around the z axis (relative to the model's current rotation)
+    pub fn rotate_z(&mut self, radians: f32) {
+        self.rotation = glm::rotate_z(&self.rotation, radians);
     }
 }
 

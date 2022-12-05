@@ -101,7 +101,19 @@ impl eframe::App for AppState {
                     ctx.set_style(style);
                     ui.vertical_centered(|ui| {
                         ui.add(mesh_view::MeshView::new(Vec2::new(400., 400.), mesh.to_owned()).unwrap());
-                        ui.add(egui::Slider::new(&mut mesh.lock().unwrap().scale, 0.0..=2.0));
+                        ui.horizontal(|ui| {
+                            let mut mesh = mesh.lock().unwrap();
+                            if ui.button("reset").clicked() {
+                                mesh.scale = 1.0;
+                                mesh.reset_rotation();
+                                mesh.translation = Vec3::new(
+                                    -heightmap.size.x as f32 * heightmap.scale.x * 0.5,
+                                    -heightmap.size.y as f32 * heightmap.scale.y * 0.5,
+                                    0.0
+                                );
+                            }
+                            ui.add(egui::Slider::new(&mut mesh.scale, 0.0..=2.0));
+                        })
                     });
                 }
             }
