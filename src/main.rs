@@ -3,6 +3,7 @@
 use std::env;
 use std::fs::File;
 use std::sync::Arc;
+use std::sync::Mutex;
 use eframe::egui;
 use egui::Vec2;
 use nalgebra_glm::Vec3;
@@ -14,8 +15,7 @@ use egui_glow::glow;
 mod mesh_view;
 
 struct AppState {
-    renderable_mesh: Option<Arc<mesh_view::RenderableMesh>>,
-    view_3d: mesh_view::MeshView,
+    renderable_mesh: Option<Arc<Mutex<mesh_view::RenderableMesh>>>,
     gl: Arc<glow::Context>,
     heightmap_path: Option<String>,
     heightmap: Option<Heightmap>,
@@ -26,7 +26,6 @@ impl AppState {
     fn new(gl: Arc<glow::Context>) -> Self {
         Self {
             renderable_mesh: None,
-            view_3d: mesh_view::MeshView::new(gl.to_owned(), Vec2::new(400., 400.)).unwrap(),
             gl: gl,
             heightmap_path: None,
             heightmap: None,
@@ -88,23 +87,21 @@ impl eframe::App for AppState {
                 if let None = self.renderable_mesh {
                     let mesh_gl = self.gl.to_owned();
                     let heightmap_mesh = heightmap.get_triangles();
-                    self.renderable_mesh = 
-                        Some(Arc::new(
-                            mesh_view::RenderableMesh::new(
-                                mesh_gl, heightmap_mesh).unwrap()));
-                    self.view_3d.translation = Vec3::new(
+                    let mut mesh = mesh_view::RenderableMesh::new(mesh_gl, heightmap_mesh).unwrap();
+                    mesh.translation = Vec3::new(
                         -heightmap.size.x as f32 * heightmap.scale.x * 0.5,
                         -heightmap.size.y as f32 * heightmap.scale.y * 0.5,
                         0.0
                     );
+                    self.renderable_mesh = Some(Arc::new(Mutex::new(mesh)));
                 }
                 if let Some(mesh) = &self.renderable_mesh {
                     let mut style = (*ctx.style()).clone();
                     style.spacing.slider_width = 400.;
                     ctx.set_style(style);
                     ui.vertical_centered(|ui| {
-                        self.view_3d.show_mesh(ui, mesh.to_owned());
-                        ui.add(egui::Slider::new(&mut self.view_3d.scale, 0.0..=2.0));
+                        ui.add(mesh_view::MeshView::new(Vec2::new(400., 400.), mesh.to_owned()).unwrap());
+                        ui.add(egui::Slider::new(&mut mesh.lock().unwrap().scale, 0.0..=2.0));
                     });
                 }
             }

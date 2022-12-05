@@ -1,5 +1,5 @@
-use std::sync::Arc;
-use egui;
+use std::sync::{Arc, Mutex};
+use egui::Widget;
 extern crate nalgebra_glm as glm;
 use bytemuck;
 
@@ -9,166 +9,118 @@ use eframe::egui_glow;
 use egui_glow::glow;
 use glm::{Vec3, Mat4};
 
+const VERTEX_SHADER_SOURCE: &str = r#"
+#version 330 core
+layout (location = 0) in vec3 a_pos;
+layout (location = 1) in vec3 a_normal;
+uniform mat4 u_transformation;
+uniform mat3 u_normal_rotation;
+const vec4 colors[3] = vec4[3](
+    vec4(1.0, 0.0, 0.0, 1.0),
+    vec4(0.0, 1.0, 0.0, 1.0),
+    vec4(0.0, 0.0, 1.0, 1.0)
+);
+out vec3 v_normal;
+void main() {
+    v_normal = u_normal_rotation * a_normal;
+    gl_Position = u_transformation * vec4(a_pos.x, a_pos.y, a_pos.z , 1.0);
+    gl_Position.z *= 0.001;
+}
+"#;
+
+const FRAGMENT_SHADER_SOURCE: &str = r#"
+#version 330 core
+precision mediump float;
+in vec3 v_normal;
+out vec4 out_color;
+vec3 light_direction = vec3(-1,-1,-1);
+vec3 light_color = vec3(1,1,1);
+float diffuse = 0.5;
+float ambient = 0.2;
+float specular = 0.1;
+
+void main()
+{
+  vec3 normal_3 = normalize(vec3(v_normal.x, v_normal.y, v_normal.z));
+  float d = dot(normal_3, normalize(light_direction));
+  vec3 reflection = light_direction - normal_3 * d * 2.;
+  float s = max(0., dot(vec3(0.,0.,-1.), reflection));
+  float intensity = ambient + diffuse * max(0, d) + specular * s;
+  out_color = vec4(light_color * intensity, 1.0);
+}
+"#;
+
+fn create_shader_program(gl: &Arc<glow::Context>) -> Result<glow::Program, String>{
+    use glow::HasContext as _;
+
+    unsafe {
+        let shader_program = gl.create_program()?;
+
+        let shader_sources = [
+            (glow::VERTEX_SHADER, VERTEX_SHADER_SOURCE),
+            (glow::FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE),
+        ];
+
+        let mut shaders: Vec<glow::NativeShader> = Vec::new();
+        for (shader_type, shader_source) in &shader_sources {
+            let shader = gl.create_shader(*shader_type)?;
+            gl.shader_source(shader, shader_source);
+            gl.compile_shader(shader);
+            if !gl.get_shader_compile_status(shader) {
+                return Err(format!(
+                    "Failed to compile shader: {}",
+                    gl.get_shader_info_log(shader)));
+            }
+            gl.attach_shader(shader_program, shader);
+            shaders.push(shader);
+        }
+
+        gl.link_program(shader_program);
+        if !gl.get_program_link_status(shader_program) {
+            return Err(format!("{}", gl.get_program_info_log(shader_program)));
+        }
+
+        for shader in shaders {
+            gl.detach_shader(shader_program, shader);
+            gl.delete_shader(shader);
+        }
+        return Ok(shader_program);
+    }
+}
+
+/// A simple Widget to view triangles in 3D space
 pub struct MeshView {
     pub view_size: egui::Vec2,
-    pub scale: f32,
-    pub translation: Vec3,
-    pub rotation: Mat4,
-    pub right_handed: bool,
-    shader_program: glow::Program,
-    gl: Arc<glow::Context>
+    pub mesh: Arc<Mutex<RenderableMesh>>
 }
 
 impl MeshView {
-    pub fn new(gl: Arc<glow::Context>, size: egui::Vec2) -> Result<Self, String> {
-        use glow::HasContext as _;
-
-        let transformable_vertex = 
-        r#"
-        #version 330 core
-        layout (location = 0) in vec3 a_pos;
-        layout (location = 1) in vec3 a_normal;
-        uniform mat4 u_transformation;
-        uniform mat3 u_normal_rotation;
-        const vec4 colors[3] = vec4[3](
-            vec4(1.0, 0.0, 0.0, 1.0),
-            vec4(0.0, 1.0, 0.0, 1.0),
-            vec4(0.0, 0.0, 1.0, 1.0)
-        );
-        out vec3 v_normal;
-        void main() {
-            v_normal = u_normal_rotation * a_normal;
-            gl_Position = u_transformation * vec4(a_pos.x, a_pos.y, a_pos.z , 1.0);
-            gl_Position.z *= 0.001;
-        }
-        "#;
-
-        let phong_fragment =
-        r#"
-        #version 330 core
-        precision mediump float;
-        in vec3 v_normal;
-        out vec4 out_color;
-        vec3 light_direction = vec3(-1,-1,-1);
-        vec3 light_color = vec3(1,1,1);
-        float diffuse = 0.5;
-        float ambient = 0.2;
-        float specular = 0.1;
-        
-        void main()
-        {
-          vec3 normal_3 = normalize(vec3(v_normal.x, v_normal.y, v_normal.z));
-          float d = dot(normal_3, normalize(light_direction));
-          vec3 reflection = light_direction - normal_3 * d * 2.;
-          float s = max(0., dot(vec3(0.,0.,-1.), reflection));
-          float intensity = ambient + diffuse * max(0, d) + specular * s;
-          out_color = vec4(light_color * intensity, 1.0);
-        }
-        "#;
-
-        unsafe {
-            let shader_program = gl.create_program()?;
-
-            let (vertex_shader_source, fragment_shader_source) = (
-                transformable_vertex,
-                phong_fragment,
-            );
-
-            let shader_sources = [
-                (glow::VERTEX_SHADER, vertex_shader_source),
-                (glow::FRAGMENT_SHADER, fragment_shader_source),
-            ];
-
-            let mut shaders: Vec<glow::NativeShader> = Vec::new(); 
-            for (shader_type, shader_source) in &shader_sources {
-                let shader = gl.create_shader(*shader_type)?;
-                gl.shader_source(shader, shader_source);
-                gl.compile_shader(shader);
-                if !gl.get_shader_compile_status(shader) {
-                    return Err(format!(
-                        "Failed to compile MeshView: {}",
-                        gl.get_shader_info_log(shader)));
-                }
-                gl.attach_shader(shader_program, shader);
-                shaders.push(shader);
-            }
-
-            gl.link_program(shader_program);
-            if !gl.get_program_link_status(shader_program) {
-                return Err(format!("{}", gl.get_program_info_log(shader_program)));
-            }
-
-            for shader in shaders {
-                gl.detach_shader(shader_program, shader);
-                gl.delete_shader(shader);
-            }
-            return Ok(Self { 
-                view_size: size,
-                scale: 1.,
-                translation: Vec3::new(0., 0., 0.),
-                rotation: Mat4::identity(),
-                right_handed: true,
-                shader_program,
-                gl
-            });
-        }
+    pub fn new(size: egui::Vec2, mesh: Arc<Mutex<RenderableMesh>>) -> Result<Self, String> {
+        return Ok(Self {
+            view_size: size,
+            mesh
+        });
     }
-    fn combine_transformations(&self) -> Mat4 {
-        // The negative z coordinate makes the coordinates right handed in the shader
-        // There's probably a better way to do this
-        let scaling = Mat4::new(
-            self.scale, 0., 0., 0.,
-            0., self.scale, 0., 0.,
-            0., 0., -self.scale, 0.,
-            0., 0., 0., 1.0);
-        let translating = Mat4::new(
-            1., 0., 0., self.translation[0],
-            0., 1., 0., self.translation[1],
-            0., 0., 1., self.translation[2],
-            0., 0., 0., 1.);
-        return self.rotation * scaling * translating;
-    }
-    pub fn show_mesh(&mut self, ui: &mut egui::Ui, mesh: Arc<RenderableMesh>) {
-        use glow::HasContext as _;
+}
 
+impl Widget for MeshView {
+    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
         let (rect, response) =
             ui.allocate_exact_size(self.view_size, egui::Sense::drag());
 
-        if response.dragged() {
-            self.rotation =
-                glm::rotate_y(&self.rotation, -response.drag_delta().x * 0.01);
-            self.rotation =
-                glm::rotate_x(&self.rotation, -response.drag_delta().y * 0.01);
-            self.scale += response.drag_delta().x * 0.01;
+        {
+            let mut mesh = self.mesh.lock().unwrap();
+            if response.dragged() {
+                mesh.rotation =
+                    glm::rotate_y(&mesh.rotation, -response.drag_delta().x * 0.01);
+                mesh.rotation =
+                    glm::rotate_x(&mesh.rotation, -response.drag_delta().y * 0.01);
+                mesh.scale += response.drag_delta().x * 0.01;
+            }
         }
 
-        let gl = self.gl.to_owned();
-        let shader_program = self.shader_program;
-        let transformation_matrix = self.combine_transformations();
-        let transformation = transformation_matrix.as_slice().to_owned();
-        let normal_rotation = match transformation_matrix.try_inverse() {
-            Some(result) => {result.transpose().as_slice().to_owned()},
-            None => {Mat4::identity().as_slice().to_owned()}
-        };
         let cb = egui_glow::CallbackFn::new(move |_info, _painter| {
-            unsafe {
-                gl.enable(glow::DEPTH_TEST);
-                gl.clear(glow::DEPTH_BUFFER_BIT);
-                gl.disable(glow::CLIP_DEPTH_MODE);
-                gl.depth_range_f32(-100., 100.);
-                gl.use_program(Some(shader_program));
-                gl.uniform_matrix_4_f32_slice(
-                    gl.get_uniform_location(shader_program, "u_transformation").as_ref(),
-                    false,
-                    &transformation,
-                );
-                gl.uniform_matrix_3_f32_slice(
-                    gl.get_uniform_location(shader_program, "u_normal_rotation").as_ref(),
-                    false,
-                    &normal_rotation,
-                );
-            }
-            mesh.draw();
+            self.mesh.lock().unwrap().draw();
         });
 
         if ui.is_rect_visible(rect) {
@@ -177,24 +129,22 @@ impl MeshView {
                 callback: Arc::new(cb),
             });
         }
-    }
-}
-
-
-impl Drop for MeshView {
-    fn drop(&mut self) {
-        use glow::HasContext as _;
-        unsafe {
-            self.gl.as_ref().delete_program(self.shader_program);
-        }
+        return response;
     }
 }
 
 pub struct RenderableMesh {
-    // Immutable reference to original mesh
-    triangles: Arc<Vec<Triangle>>,
+    /// Position of the mesh (relative to its original coordinate system)
+    pub translation: Vec3,
+    /// Size of the mesh during render
+    pub scale: f32,
+    /// Rotation matrix for the mesh.
+    pub rotation: Mat4,
+    pub right_handed: bool,
     vertex_buffer: glow::Buffer,
     vertex_array: glow::VertexArray,
+    triangle_count: usize,
+    shader_program: glow::Program,
     gl: Arc<glow::Context>
 }
 
@@ -242,22 +192,73 @@ impl RenderableMesh {
             gl.vertex_attrib_pointer_f32(1, 3, glow::FLOAT, false, bpv * 2, bpv);
 
             return Ok(Self {
-                triangles: Arc::new(triangles),
+                scale: 1.,
+                translation: Vec3::new(0., 0., 0.),
+                rotation: Mat4::identity(),
+                right_handed: true,
                 vertex_buffer,
                 vertex_array,
+                shader_program: create_shader_program(&gl)?,
+                triangle_count: triangles.len(),
                 gl
             });
         }
     }
+    fn combine_transformations(&self) -> Mat4 {
+        // The negative z coordinate makes the coordinates right handed in the shader
+        // There's probably a better way to do this
+        let scaling = Mat4::new(
+            self.scale, 0., 0., 0.,
+            0., self.scale, 0., 0.,
+            0., 0., -self.scale, 0.,
+            0., 0., 0., 1.0);
+        let translating = Mat4::new(
+            1., 0., 0., self.translation[0],
+            0., 1., 0., self.translation[1],
+            0., 0., 1., self.translation[2],
+            0., 0., 0., 1.);
+        return self.rotation * scaling * translating;
+    }
+    /// Renders the mesh to its glow::Context using its combined transformations
+    /// As side effects, this enables the depth test, clears and uses the depth buffer,
+    /// and sets the shader program to that of the Renderable Mesh
     pub fn draw(&self) {
         use glow::HasContext as _;
+        let transformation_matrix = self.combine_transformations();
+        let transformation = transformation_matrix.as_slice().to_owned();
+        let normal_rotation = match transformation_matrix.try_inverse() {
+            Some(result) => {result.transpose().as_slice().to_owned()},
+            None => {Mat4::identity().as_slice().to_owned()}
+        };
         unsafe {
+            self.gl.enable(glow::DEPTH_TEST);
+            self.gl.clear(glow::DEPTH_BUFFER_BIT);
+            self.gl.use_program(Some(self.shader_program));
+            self.gl.uniform_matrix_4_f32_slice(
+                self.gl.get_uniform_location(self.shader_program, "u_transformation").as_ref(),
+                false,
+                &transformation,
+            );
+            self.gl.uniform_matrix_3_f32_slice(
+                self.gl.get_uniform_location(self.shader_program, "u_normal_rotation").as_ref(),
+                false,
+                &normal_rotation,
+            );
             self.gl.bind_vertex_array(Some(self.vertex_array));
-            self.gl.draw_arrays(glow::TRIANGLES, 0, self.triangles.len() as i32 * 3);
+            self.gl.draw_arrays(glow::TRIANGLES, 0, self.triangle_count as i32 * 3);
         }
     }
-    pub fn get_triangles(&self) -> Arc<Vec<Triangle>>{
-        return self.triangles.to_owned();
+    /// Reference to the glow::Context used to create this mesh's buffers and shaders
+    pub fn get_gl(&self) -> Arc<glow::Context> {
+        return self.gl.to_owned();
+    }
+    /// The number of triangles in the vertex buffer
+    pub fn get_triangle_count(&self) -> usize{
+        return self.triangle_count;
+    }
+    /// Sets the rotation matrix back to the identity matrix
+    pub fn reset_rotation(&mut self) {
+        self.rotation = Mat4::identity();
     }
 }
 
@@ -267,6 +268,7 @@ impl Drop for RenderableMesh {
         unsafe {
             self.gl.as_ref().delete_vertex_array(self.vertex_array);
             self.gl.as_ref().delete_buffer(self.vertex_buffer);
+            self.gl.as_ref().delete_program(self.shader_program);
         }
     }
 }
