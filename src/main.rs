@@ -38,7 +38,7 @@ impl eframe::App for AppState {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Heightmap To STL");
-            
+
             // File Selection
             if ui.button("Select File").clicked() {
                 if let Some(rfd_result) = rfd::FileDialog::new().pick_file() {
@@ -64,7 +64,7 @@ impl eframe::App for AppState {
             });
 
             // Error Message
-            // If there's an error, don't show any option bug file selection
+            // If there's an error, don't show any option but file selection
             if let Some(error) = &self.error {
                 ui.label("Error:");
                 ui.monospace(error);
@@ -72,7 +72,7 @@ impl eframe::App for AppState {
             }
             if let Some(heightmap) = &self.heightmap {
                 if ui.button("Export").clicked() {
-                    
+
                     if let Some(rfd_result) = rfd::FileDialog::new().save_file() {
                         let output_file = rfd_result.display().to_string();
                         let triangles = heightmap.get_triangles();
@@ -97,7 +97,7 @@ impl eframe::App for AppState {
                 }
                 if let Some(mesh) = &self.renderable_mesh {
                     let mut style = (*ctx.style()).clone();
-                    style.spacing.slider_width = 400.;
+                    style.spacing.slider_width = 350.;
                     ctx.set_style(style);
                     ui.vertical_centered(|ui| {
                         ui.add(mesh_view::MeshView::new(Vec2::new(400., 400.), mesh.to_owned()).unwrap());
