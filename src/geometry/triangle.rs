@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::Write;
+use std::io::{Write, Read, BufReader};
 extern crate nalgebra_glm as glm;
 use glm::Vec3;
 
@@ -13,6 +13,9 @@ fn write_vec3(file: &mut File, vector: &Vec3)
     return Ok(());
 }
 
+/// Writes triangles to a binary stl file.
+/// The normal is set based on the triangle vertices.
+/// Gives no data (0x00...) for header and attributes.
 pub fn write_stl_binary(
     path: String,
     triangles: &Vec::<Triangle>)
@@ -31,4 +34,39 @@ pub fn write_stl_binary(
         output.write(&[0 as u8; 2])?;
     }
     return Ok(());
+}
+
+fn read_vec3(buffer: &mut BufReader<File>) -> Result<Vec3, std::io::Error> {
+    let mut bytes = [0u8; 4];
+    buffer.read_exact(&mut bytes)?;
+    let x = f32::from_le_bytes(bytes);
+    buffer.read_exact(&mut bytes)?;
+    let y = f32::from_le_bytes(bytes);
+    buffer.read_exact(&mut bytes)?;
+    let z = f32::from_le_bytes(bytes);
+    return Ok(Vec3::new(x, y, z));
+}
+
+/// Loads a binary STL file into a list of triangles
+///
+/// Discards header, normals, and attributes
+pub fn read_stl_binary(path: &str) -> Result<Vec::<Triangle>, std::io::Error> {
+    let mut header = [0u8; 80];
+    let mut triangle_count : u32 = 0;
+    let mut triangles = Vec::<Triangle>::new();
+    let mut input = BufReader::new(File::open(path)?);
+    input.read_exact(&mut header)?;
+    let mut bytes = [0u8; 4];
+    input.read_exact(&mut bytes)?;
+    triangle_count = u32::from_le_bytes(bytes);
+    let mut attribute_bytes = [0u8; 2];
+    for _i in [0..triangle_count] {
+        let _normal = read_vec3(&mut input)?;
+        triangles.push([
+            read_vec3(&mut input)?,
+            read_vec3(&mut input)?,
+            read_vec3(&mut input)?]);
+        input.read_exact(&mut attribute_bytes)?;
+    }
+    return Ok(triangles);
 }

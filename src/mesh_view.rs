@@ -97,11 +97,11 @@ pub struct MeshView {
 }
 
 impl MeshView {
-    pub fn new(size: egui::Vec2, mesh: Arc<Mutex<RenderableMesh>>) -> Result<Self, String> {
-        return Ok(Self {
+    pub fn new(size: egui::Vec2, mesh: Arc<Mutex<RenderableMesh>>) -> Self {
+        return Self {
             view_size: size,
             mesh
-        });
+        };
     }
 }
 

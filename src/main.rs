@@ -70,6 +70,7 @@ impl eframe::App for AppState {
                 ui.monospace(error);
                 return;
             }
+
             if let Some(heightmap) = &self.heightmap {
                 if ui.button("Export").clicked() {
 
@@ -100,7 +101,7 @@ impl eframe::App for AppState {
                     style.spacing.slider_width = 350.;
                     ctx.set_style(style);
                     ui.vertical_centered(|ui| {
-                        ui.add(mesh_view::MeshView::new(Vec2::new(400., 400.), mesh.to_owned()).unwrap());
+                        ui.add(mesh_view::MeshView::new(Vec2::new(400., 400.), mesh.to_owned()));
                         ui.horizontal(|ui| {
                             let mut mesh = mesh.lock().unwrap();
                             if ui.button("reset").clicked() {
