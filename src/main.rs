@@ -88,7 +88,7 @@ impl eframe::App for AppState {
                 if let None = self.renderable_mesh {
                     let mesh_gl = self.gl.to_owned();
                     let heightmap_mesh = heightmap.get_triangles();
-                    let mut mesh = mesh_view::RenderableMesh::new(mesh_gl, heightmap_mesh).unwrap();
+                    let mut mesh = mesh_view::RenderableMesh::new(mesh_gl, &heightmap_mesh).unwrap();
                     mesh.translation = Vec3::new(
                         -heightmap.size.x as f32 * heightmap.scale.x * 0.5,
                         -heightmap.size.y as f32 * heightmap.scale.y * 0.5,
