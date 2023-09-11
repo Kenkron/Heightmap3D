@@ -1,11 +1,11 @@
 use std::fs::File;
-use std::io::{Write, Read, BufReader};
+use std::io::{Write, Read, BufReader, BufWriter};
 extern crate nalgebra_glm as glm;
 use glm::Vec3;
 
 pub type Triangle = [Vec3; 3];
 
-fn write_vec3(file: &mut File, vector: &Vec3)
+fn write_vec3<W: Write>(file: &mut W, vector: &Vec3)
 -> Result<(), std::io::Error>{
     file.write_all(&vector[0].to_le_bytes())?;
     file.write_all(&vector[1].to_le_bytes())?;
@@ -20,7 +20,7 @@ pub fn write_stl_binary(
     path: String,
     triangles: &Vec::<Triangle>)
 -> Result<(), std::io::Error> {
-    let mut output = File::create(path)?;
+    let mut output = BufWriter::new(File::create(path)?);
     output.write_all(&[0 as u8; 80])?;
     output.write_all(&(triangles.len() as u32).to_le_bytes())?;
     for triangle in triangles {

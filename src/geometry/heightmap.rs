@@ -43,24 +43,41 @@ impl Heightmap {
         let scale = self.scale;
         let x_scale = Vec2::new(scale[0], 0.);
         let y_scale = Vec2::new(0., scale[1]);
-        for i in 0..self.size[0] + 1 {
-            for j in 0 ..self.size[1] + 1 {
+        for j in 0 ..self.size[1] + 1 {
+            // when does I next change
+            // (used to combine all surfaces in a row into a single rect)
+            let mut next_i = 0;
+            for i in 0..self.size[0] + 1 {
                 let z = self.sample(i, j);
                 let corner = Vec2::new(i as f32, j as f32).component_mul(&self.scale);
-                let corners = [
-                    corner.insert_row(2, z),
-                    (corner + x_scale).insert_row(2, z),
-                    (corner + x_scale + y_scale).insert_row(2, z),
-                    (corner + y_scale).insert_row(2, z)
-                ];
-                if i < self.size[0] && j < self.size[1] && z > 0. {
-                    add_rect(&mut result, corners);
+                // let corners = [
+                //     corner.insert_row(2, z),
+                //     (corner + x_scale).insert_row(2, z),
+                //     (corner + x_scale + y_scale).insert_row(2, z),
+                //     (corner + y_scale).insert_row(2, z)
+                // ];
+                if i < self.size[0] && j < self.size[1] && z > 0. && i >= next_i {
+                    for ni in (i + 1)..=self.size[0] {
+                        next_i = ni;
+                        if self.sample(ni, j) != z {
+                            break;
+                        }
+                    }
+                    let i_count = (next_i - i) as f32;
+                    let xs = x_scale * i_count;
                     add_rect(&mut result,
                         [
+                            corner.insert_row(2, z),
+                            (corner + xs).insert_row(2, z),
+                            (corner + xs + y_scale).insert_row(2, z),
+                            (corner + y_scale).insert_row(2, z)
+                        ]);
+                    add_rect(&mut result,
+                        [
+                            (corner + xs).insert_row(2, 0.),
                             (corner).insert_row(2, 0.),
-                            (corner + x_scale).insert_row(2, 0.),
-                            (corner + x_scale + y_scale).insert_row(2, 0.),
-                            (corner + y_scale).insert_row(2, 0.)
+                            (corner + y_scale).insert_row(2, 0.),
+                            (corner + xs + y_scale).insert_row(2, 0.)
                         ]);
                 }
                 let bottom_z = self.sample(i, j - 1);
