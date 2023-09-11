@@ -42,15 +42,30 @@ impl eframe::App for AppState {
             // File Selection
             if ui.button("Select File").clicked() {
                 if let Some(rfd_result) = rfd::FileDialog::new().pick_file() {
-                    self.heightmap_path = Some(rfd_result.display().to_string());
+                    let path = rfd_result.display().to_string();
+                    self.heightmap_path = Some(path.clone());
                     self.error = None;
-                    match read_heightmap(File::open(rfd_result.display().to_string()).unwrap()) {
-                        Err(_) => {
-                            self.error = Some("Error Exporting".to_string());
-                            self.heightmap = None;
-                        },
-                        Ok(heightmap) => {
-                            self.heightmap = Some(heightmap);
+                    if path.ends_with(".png") {
+                        match read_heightmap_image(&path) {
+                            Err(_) => {
+                                self.error = Some("Error Exporting".to_string());
+                                self.heightmap = None;
+                            },
+                            Ok(heightmap) => {
+                                self.heightmap = Some(heightmap);
+                                self.renderable_mesh = None;
+                            }
+                        }
+                    } else {
+                        match read_heightmap(File::open(path).unwrap()) {
+                            Err(_) => {
+                                self.error = Some("Error Exporting".to_string());
+                                self.heightmap = None;
+                            },
+                            Ok(heightmap) => {
+                                self.heightmap = Some(heightmap);
+                                self.renderable_mesh = None;
+                            }
                         }
                     }
                 }

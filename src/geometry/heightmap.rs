@@ -2,8 +2,11 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 extern crate nalgebra_glm as glm;
 use glm::{Vec2, Vec3, TVec2};
+use image::GenericImageView;
 use crate::geometry::triangle::*;
 use crate::geometry::ReadError;
+use image::io::Reader as ImageReader;
+use rand::random;
 
 pub struct Heightmap {
     pub size: TVec2::<i32>,
@@ -25,10 +28,10 @@ impl Heightmap {
             return 0.;
         } else {
             if self.invert_y {
-                let index = ((self.size[1] as i32 - j - 1) * self.size[1] + i) as usize;
+                let index = ((self.size[1] as i32 - j - 1) * self.size[0] + i) as usize;
                 return self.samples[index];
             } else {
-                let index = (j * self.size[1] + i) as usize;
+                let index = (j * self.size[0] + i) as usize;
                 return self.samples[index];
             }
         }
@@ -50,8 +53,15 @@ impl Heightmap {
                     (corner + x_scale + y_scale).insert_row(2, z),
                     (corner + y_scale).insert_row(2, z)
                 ];
-                if i < self.size[0] && j < self.size[1] {
+                if i < self.size[0] && j < self.size[1] && z > 0. {
                     add_rect(&mut result, corners);
+                    add_rect(&mut result,
+                        [
+                            (corner).insert_row(2, 0.),
+                            (corner + x_scale).insert_row(2, 0.),
+                            (corner + x_scale + y_scale).insert_row(2, 0.),
+                            (corner + y_scale).insert_row(2, 0.)
+                        ]);
                 }
                 let bottom_z = self.sample(i, j - 1);
                 let bottom_corners = [
@@ -71,18 +81,39 @@ impl Heightmap {
                 add_rect(&mut result, left_corners);
             }
         }
-        let mut extents = self.scale;
-        extents[0] *= self.size[0] as f32;
-        extents[1] *= self.size[1] as f32;
-        let floor_corners = [
-            Vec3::new(0.,0.,0.),
-            Vec3::new(0.,extents[1],0.),
-            Vec3::new(extents[0],extents[1],0.),
-            Vec3::new(extents[0],0.,0.),
-        ];
-        add_rect(&mut result, floor_corners);
+        // let mut extents = self.scale;
+        // extents[0] *= self.size[0] as f32;
+        // extents[1] *= self.size[1] as f32;
+        // let floor_corners = [
+        //     Vec3::new(0.,0.,0.),
+        //     Vec3::new(0.,extents[1],0.),
+        //     Vec3::new(extents[0],extents[1],0.),
+        //     Vec3::new(extents[0],0.,0.),
+        // ];
+        // add_rect(&mut result, floor_corners);
         return result;
     }
+}
+
+pub fn read_heightmap_image(filename: &str)
+-> Result<Heightmap, ReadError> {
+    let image = ImageReader::open(filename)?.decode()?;
+    let size = TVec2::<i32>::new(image.width() as i32, image.height() as i32);
+    let scale = Vec2::new(1., 1.);
+    let mut samples = Vec::<f32>::new();
+    for y in 0..image.height() {
+        for x in 0..image.width() {
+            let pixel = image.get_pixel(x, y);
+            let max_channel = pixel[0].max(pixel[1]).max(pixel[2]) as f32 / 255.;
+            let mut randomness = 0.;
+            if pixel[0] == 0 && max_channel > 0. {
+                randomness = 1./255.;
+            }
+            let sample = max_channel + randomness * random::<f32>();
+            samples.push(sample * size.max() as f32 * 1./32.);
+        }
+    }
+    return Ok(Heightmap{size: size, scale: scale, samples: samples, invert_y: true});
 }
 
 pub fn read_heightmap(file: File)
