@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use eframe::egui;
 use egui::Vec2;
+use geometry::ReadError;
 use nalgebra_glm::Vec3;
 mod geometry;
 use crate::geometry::triangle::*;
@@ -26,7 +27,7 @@ impl AppState {
     fn new(gl: Arc<glow::Context>) -> Self {
         Self {
             renderable_mesh: None,
-            gl: gl,
+            gl,
             heightmap_path: None,
             heightmap: None,
             error: None
@@ -44,27 +45,28 @@ impl eframe::App for AppState {
                 if let Some(rfd_result) = rfd::FileDialog::new().pick_file() {
                     let path = rfd_result.display().to_string();
                     self.heightmap_path = Some(path.clone());
+                    self.heightmap = None;
+                    self.renderable_mesh = None;
                     self.error = None;
                     if path.ends_with(".png") {
                         match read_heightmap_image(&path) {
                             Err(_) => {
                                 self.error = Some("Error Exporting".to_string());
-                                self.heightmap = None;
                             },
                             Ok(heightmap) => {
                                 self.heightmap = Some(heightmap);
-                                self.renderable_mesh = None;
                             }
                         }
                     } else {
-                        match read_heightmap(File::open(path).unwrap()) {
-                            Err(_) => {
-                                self.error = Some("Error Exporting".to_string());
-                                self.heightmap = None;
-                            },
+                        match File::open(path)
+                            .map_err(|e| {ReadError::from(e)})
+                            .and_then(|file| {read_heightmap(file)})
+                        {
                             Ok(heightmap) => {
                                 self.heightmap = Some(heightmap);
-                                self.renderable_mesh = None;
+                            },
+                            Err(e) => {
+                                self.error = Some(format!("Error Importing:\n\t{}\n", e));
                             }
                         }
                     }
@@ -92,24 +94,27 @@ impl eframe::App for AppState {
                     if let Some(rfd_result) = rfd::FileDialog::new().save_file() {
                         let output_file = rfd_result.display().to_string();
                         let triangles = heightmap.get_triangles();
-                        match write_stl_binary(output_file, &triangles) {
-                            Err(_) => {
-                                self.error = Some("Error Exporting".to_string());
-                            },
-                            Ok(_) => {}
+                        if let Err(e) = write_stl_binary(output_file, &triangles) {
+                            self.error = Some(format!("Error Exporting:\n\t{}\n", e));
                         };
                     }
                 }
-                if let None = self.renderable_mesh {
+                if self.renderable_mesh.is_none() {
                     let mesh_gl = self.gl.to_owned();
                     let heightmap_mesh = heightmap.get_triangles();
-                    let mut mesh = mesh_view::RenderableMesh::new(mesh_gl, &heightmap_mesh).unwrap();
-                    mesh.translation = Vec3::new(
-                        -heightmap.size.x as f32 * heightmap.scale.x * 0.5,
-                        -heightmap.size.y as f32 * heightmap.scale.y * 0.5,
-                        0.0
-                    );
-                    self.renderable_mesh = Some(Arc::new(Mutex::new(mesh)));
+                    match mesh_view::RenderableMesh::new(mesh_gl, &heightmap_mesh) {
+                        Ok (mut mesh) => {
+                            mesh.translation = Vec3::new(
+                                -heightmap.size.x as f32 * heightmap.scale.x * 0.5,
+                                -heightmap.size.y as f32 * heightmap.scale.y * 0.5,
+                                0.0
+                            );
+                            self.renderable_mesh = Some(Arc::new(Mutex::new(mesh)));
+                        },
+                        Err (e) => {
+                            self.error = Some(format!("Error creating mesh:\n\t{}\n", e));
+                        }
+                    };
                 }
                 if let Some(mesh) = &self.renderable_mesh {
                     let mut style = (*ctx.style()).clone();
@@ -118,17 +123,23 @@ impl eframe::App for AppState {
                     ui.vertical_centered(|ui| {
                         ui.add(mesh_view::MeshView::new(Vec2::new(400., 400.), mesh.to_owned()));
                         ui.horizontal(|ui| {
-                            let mut mesh = mesh.lock().unwrap();
-                            if ui.button("reset").clicked() {
-                                mesh.scale = 1.0;
-                                mesh.reset_rotation();
-                                mesh.translation = Vec3::new(
-                                    -heightmap.size.x as f32 * heightmap.scale.x * 0.5,
-                                    -heightmap.size.y as f32 * heightmap.scale.y * 0.5,
-                                    0.0
-                                );
+                            match mesh.lock() {
+                                Ok(mut mesh) => {
+                                    if ui.button("reset").clicked() {
+                                        mesh.scale = 1.0;
+                                        mesh.reset_rotation();
+                                        mesh.translation = Vec3::new(
+                                            -heightmap.size.x as f32 * heightmap.scale.x * 0.5,
+                                            -heightmap.size.y as f32 * heightmap.scale.y * 0.5,
+                                            0.0
+                                        );
+                                    }
+                                    ui.add(egui::Slider::new(&mut mesh.scale, 0.0..=2.0));
+                                },
+                                Err(e) => {
+                                    self.error = Some(format!("Mesh panicked:\n\t{}\n", e));
+                                }
                             }
-                            ui.add(egui::Slider::new(&mut mesh.scale, 0.0..=2.0));
                         })
                     });
                 }
@@ -140,13 +151,15 @@ impl eframe::App for AppState {
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() == 3 {
-        let file = File::open(args[1].to_owned()).expect("Failed to open heightmap file");
+        let file = File::open(&args[1]).expect("Failed to open heightmap file");
         let heightmap = read_heightmap(file).expect("Failed to parse heightmap file");
         let triangles = heightmap.get_triangles();
         write_stl_binary(args[2].to_owned(), &triangles).expect("Error saving STL");
     } else {
-        let mut options = eframe::NativeOptions::default();
-        options.initial_window_size = Some(egui::vec2(500., 600.));
+        let options = eframe::NativeOptions {
+            initial_window_size: Some(egui::vec2(500., 600.)),
+            ..Default::default()
+        };
         eframe::run_native(
             "Heightmap To STL",
             options,

@@ -5,30 +5,30 @@ use image::ImageError;
 
 #[derive(Debug, Clone)]
 pub enum ReadError {
-    IOError,
-    ParseFloatError,
-    ParseIntError,
-    ImageError
+    IO,
+    ParseFloat,
+    ParseInt,
+    Image
 }
 impl From<ParseIntError> for ReadError {
-    fn from(_e: ParseIntError) -> Self {Self::ParseIntError}
+    fn from(_e: ParseIntError) -> Self {Self::ParseInt}
 }
 impl From<ParseFloatError> for ReadError {
-    fn from(_e: ParseFloatError) -> Self {Self::ParseFloatError}
+    fn from(_e: ParseFloatError) -> Self {Self::ParseFloat}
 }
 impl From<std::io::Error> for ReadError {
-    fn from(_e: std::io::Error) -> Self {Self::IOError}
+    fn from(_e: std::io::Error) -> Self {Self::IO}
 }
 impl From<ImageError> for ReadError {
-    fn from(_e: ImageError) -> Self {Self::ImageError}
+    fn from(_e: ImageError) -> Self {Self::Image}
 }
 impl std::fmt::Display for ReadError {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
         match self {
-            Self::IOError => write!(f, "Read/Write Error"),
-            Self::ParseFloatError => write!(f, "Parse float Error"),
-            Self::ParseIntError => write!(f, "Parse int Error"),
-            Self::ImageError => write!(f, "Image Error")
+            Self::IO => write!(f, "Read/Write Error"),
+            Self::ParseFloat => write!(f, "Parse float Error"),
+            Self::ParseInt => write!(f, "Parse int Error"),
+            Self::Image => write!(f, "Image Error")
         }
     }
 }

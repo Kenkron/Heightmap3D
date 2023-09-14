@@ -10,7 +10,7 @@ fn write_vec3<W: Write>(file: &mut W, vector: &Vec3)
     file.write_all(&vector[0].to_le_bytes())?;
     file.write_all(&vector[1].to_le_bytes())?;
     file.write_all(&vector[2].to_le_bytes())?;
-    return Ok(());
+    Ok(())
 }
 
 /// Writes triangles to a binary stl file.
@@ -21,7 +21,7 @@ pub fn write_stl_binary(
     triangles: &Vec::<Triangle>)
 -> Result<(), std::io::Error> {
     let mut output = BufWriter::new(File::create(path)?);
-    output.write_all(&[0 as u8; 80])?;
+    output.write_all(&[0_u8; 80])?;
     output.write_all(&(triangles.len() as u32).to_le_bytes())?;
     for triangle in triangles {
         let edge1 = triangle[1] - triangle[0];
@@ -31,9 +31,9 @@ pub fn write_stl_binary(
         for vertex in triangle {
             write_vec3(&mut output, vertex)?;
         }
-        output.write(&[0 as u8; 2])?;
+        output.write_all(&[0_u8; 2])?;
     }
-    return Ok(());
+    Ok(())
 }
 
 fn read_vec3(buffer: &mut BufReader<File>) -> Result<Vec3, std::io::Error> {
@@ -44,7 +44,7 @@ fn read_vec3(buffer: &mut BufReader<File>) -> Result<Vec3, std::io::Error> {
     let y = f32::from_le_bytes(bytes);
     buffer.read_exact(&mut bytes)?;
     let z = f32::from_le_bytes(bytes);
-    return Ok(Vec3::new(x, y, z));
+    Ok(Vec3::new(x, y, z))
 }
 
 /// Loads a binary STL file into a list of triangles
@@ -52,15 +52,14 @@ fn read_vec3(buffer: &mut BufReader<File>) -> Result<Vec3, std::io::Error> {
 /// Discards header, normals, and attributes
 pub fn read_stl_binary(path: &str) -> Result<Vec::<Triangle>, std::io::Error> {
     let mut header = [0u8; 80];
-    let mut triangle_count : u32 = 0;
     let mut triangles = Vec::<Triangle>::new();
     let mut input = BufReader::new(File::open(path)?);
     input.read_exact(&mut header)?;
     let mut bytes = [0u8; 4];
     input.read_exact(&mut bytes)?;
-    triangle_count = u32::from_le_bytes(bytes);
+    let triangle_count = u32::from_le_bytes(bytes);
     let mut attribute_bytes = [0u8; 2];
-    for _i in [0..triangle_count] {
+    for _i in 0..triangle_count {
         let _normal = read_vec3(&mut input)?;
         triangles.push([
             read_vec3(&mut input)?,
@@ -68,5 +67,5 @@ pub fn read_stl_binary(path: &str) -> Result<Vec::<Triangle>, std::io::Error> {
             read_vec3(&mut input)?]);
         input.read_exact(&mut attribute_bytes)?;
     }
-    return Ok(triangles);
+    Ok(triangles)
 }

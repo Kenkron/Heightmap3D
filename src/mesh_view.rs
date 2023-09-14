@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 use egui::Widget;
 extern crate nalgebra_glm as glm;
-use bytemuck;
 use eframe::egui_glow;
 use egui_glow::glow;
 use glm::{Vec3, Mat4};
@@ -70,14 +69,14 @@ fn create_shader_program(gl: &Arc<glow::Context>) -> Result<glow::Program, Strin
 
         gl.link_program(shader_program);
         if !gl.get_program_link_status(shader_program) {
-            return Err(format!("{}", gl.get_program_info_log(shader_program)));
+            return Err(gl.get_program_info_log(shader_program).to_string());
         }
 
         for shader in shaders {
             gl.detach_shader(shader_program, shader);
             gl.delete_shader(shader);
         }
-        return Ok(shader_program);
+        Ok(shader_program)
     }
 }
 
@@ -96,10 +95,10 @@ pub struct MeshView {
 
 impl MeshView {
     pub fn new(size: egui::Vec2, mesh: Arc<Mutex<RenderableMesh>>) -> Self {
-        return Self {
+        Self {
             view_size: size,
             mesh
-        };
+        }
     }
 }
 
@@ -113,12 +112,14 @@ impl Widget for MeshView {
             return response;
         }
 
-        {
-            let mut mesh = self.mesh.lock().unwrap();
-
+        if let Ok(mut mesh) = self.mesh.lock() {
             if response.dragged_by(egui::PointerButton::Primary) {
-                mesh.rotate_y(-response.drag_delta().x * 0.01);
-                mesh.rotate_x(-response.drag_delta().y * 0.01);
+                if ui.input().modifiers.shift {
+                    mesh.rotate_z(-response.drag_delta().y * 0.01);
+                } else {
+                    mesh.rotate_y(-response.drag_delta().x * 0.01);
+                    mesh.rotate_x(-response.drag_delta().y * 0.01);
+                }
             }
             if response.dragged_by(egui::PointerButton::Secondary) {
                 let matrix = mesh.combine_transformations();
@@ -136,7 +137,9 @@ impl Widget for MeshView {
         }
 
         let cb = egui_glow::CallbackFn::new(move |_info, _painter| {
-            self.mesh.lock().unwrap().draw();
+            if let Ok(mesh) = self.mesh.lock() {
+                mesh.draw();
+            }
         });
 
         if ui.is_rect_visible(rect) {
@@ -145,7 +148,7 @@ impl Widget for MeshView {
                 callback: Arc::new(cb),
             });
         }
-        return response;
+        response
     }
 }
 
@@ -218,7 +221,7 @@ impl RenderableMesh {
             gl.enable_vertex_attrib_array(1);
             gl.vertex_attrib_pointer_f32(1, 3, glow::FLOAT, false, bpv * 2, bpv);
 
-            return Ok(Self {
+            Ok(Self {
                 scale: 1.,
                 translation: Vec3::new(0., 0., 0.),
                 rotation: Mat4::identity(),
@@ -232,7 +235,7 @@ impl RenderableMesh {
                 shader_program: create_shader_program(&gl)?,
                 triangle_count: triangles.len(),
                 gl
-            });
+            })
         }
     }
 
@@ -242,9 +245,7 @@ impl RenderableMesh {
         let scale_vec = Vec3::new(self.scale, self.scale, self.scale);
         let scale = glm::scale(&Mat4::identity(),&scale_vec);
         let translation = glm::translate(&Mat4::identity(), &self.translation);
-        return
-            self.rotation * scale * translation;
-
+        self.rotation * scale * translation
     }
 
     /// Renders the mesh to its glow::Context using its combined transformations
@@ -285,11 +286,11 @@ impl RenderableMesh {
         }
     }
     /// Reference to the glow::Context used to create this mesh's buffers and shaders
-    pub fn get_gl(&self) -> Arc<glow::Context> {
-        return self.gl.to_owned();}
+    // pub fn get_gl(&self) -> Arc<glow::Context> {
+    //     self.gl.to_owned()}
     /// The number of triangles in the vertex buffer
     pub fn get_triangle_count(&self) -> usize{
-        return self.triangle_count;}
+        self.triangle_count}
     /// Sets the rotation matrix back to the identity matrix
     pub fn reset_rotation(&mut self) {
         self.rotation = Mat4::identity();}

@@ -15,7 +15,6 @@ pub struct Heightmap {
     pub invert_y: bool
 }
 
-
 // Utility function to add a square face to a Vec of Triangles.
 fn add_rect(triangles: &mut Vec::<Triangle>, corners: [Vec3; 4]) {
     triangles.push([corners[0], corners[1], corners[2]]);
@@ -25,15 +24,13 @@ fn add_rect(triangles: &mut Vec::<Triangle>, corners: [Vec3; 4]) {
 impl Heightmap {
     pub fn sample(&self, i: i32, j: i32) -> f32{
         if i < 0 || j < 0 || i >= self.size[0] || j >= self.size[1] {
-            return 0.;
+            0.
+        } else if self.invert_y {
+            let index = ((self.size[1] - j - 1) * self.size[0] + i) as usize;
+            self.samples[index]
         } else {
-            if self.invert_y {
-                let index = ((self.size[1] as i32 - j - 1) * self.size[0] + i) as usize;
-                return self.samples[index];
-            } else {
-                let index = (j * self.size[0] + i) as usize;
-                return self.samples[index];
-            }
+            let index = (j * self.size[0] + i) as usize;
+            self.samples[index]
         }
     }
 
@@ -50,12 +47,6 @@ impl Heightmap {
             for i in 0..self.size[0] + 1 {
                 let z = self.sample(i, j);
                 let corner = Vec2::new(i as f32, j as f32).component_mul(&self.scale);
-                // let corners = [
-                //     corner.insert_row(2, z),
-                //     (corner + x_scale).insert_row(2, z),
-                //     (corner + x_scale + y_scale).insert_row(2, z),
-                //     (corner + y_scale).insert_row(2, z)
-                // ];
                 if i < self.size[0] && j < self.size[1] && z > 0. && i >= next_i {
                     for ni in (i + 1)..=self.size[0] {
                         next_i = ni;
@@ -108,7 +99,7 @@ impl Heightmap {
         //     Vec3::new(extents[0],0.,0.),
         // ];
         // add_rect(&mut result, floor_corners);
-        return result;
+        result
     }
 }
 
@@ -130,7 +121,7 @@ pub fn read_heightmap_image(filename: &str)
             samples.push(sample * size.max() as f32 * 1./32.);
         }
     }
-    return Ok(Heightmap{size: size, scale: scale, samples: samples, invert_y: true});
+    Ok(Heightmap{size, scale, samples, invert_y: true})
 }
 
 pub fn read_heightmap(file: File)
@@ -139,17 +130,16 @@ pub fn read_heightmap(file: File)
     let mut size = TVec2::<i32>::new(0, 0);
     let mut scale = Vec2::new(1., 1.);
     let mut samples = Vec::<f32>::new();
-    let mut line_num = 0;
-    for line_result in reader.lines() {
+    for (line_num, line_result) in reader.lines().enumerate() {
         let line = line_result?;
         match line_num {
             0 => {
-                let parts: Vec<&str> = line.split(",").collect();
+                let parts: Vec<&str> = line.split(',').collect();
                 size[0] = parts[0].trim().parse()?;
                 size[1] = parts[1].trim().parse()?;
             },
             1 => {
-                let parts: Vec<&str> = line.split(",").collect();
+                let parts: Vec<&str> = line.split(',').collect();
                 scale[0] = parts[0].trim().parse()?;
                 scale[1] = parts[1].trim().parse()?;
             },
@@ -157,7 +147,6 @@ pub fn read_heightmap(file: File)
                 samples.push(line.trim().parse()?);
             }
         }
-        line_num += 1;
     }
-    return Ok(Heightmap{size: size, scale: scale, samples: samples, invert_y: false});
+    Ok(Heightmap{size, scale, samples, invert_y: false})
 }
